@@ -3,7 +3,7 @@ const { redis } = require('./redis');
 
 const LIMITS = {
   free: 5,   // requests per minute
-  pro: 60,
+  pro: 6,
 };
 
 async function checkRateLimit({ userId, tier }) {
