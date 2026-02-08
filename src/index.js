@@ -1,4 +1,3 @@
-
 const express = require('express');
 
 if (process.env.NODE_ENV !== 'production') {
@@ -6,6 +5,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const crypto = require('crypto');
+const os = require('os');
 
 const { db } = require('./db');
 const { redis } = require('./redis');
@@ -20,6 +20,14 @@ app.use(express.json({ limit: '1mb' }));
 // Health check for ALB/ECS (fast, no dependencies)
 app.get('/health', (req, res) => {
   res.json({ ok: true });
+});
+
+// Identify which instance handled the request (useful for ALB/ASG demo)
+app.get('/whoami', (req, res) => {
+  res.json({
+    hostname: os.hostname(),
+    pid: process.pid,
+  });
 });
 
 // Diagnostic endpoints only in non-production
@@ -77,10 +85,16 @@ app.post('/v1/chat', async (req, res) => {
     }
 
     const id = crypto.randomUUID();
-    await db.query(
-      'INSERT INTO requests (id, user_id, tier, prompt, response) VALUES ($1,$2,$3,$4,$5)',
-      [id, user_id, tier, prompt, reply]
-    );
+
+    // Best-effort persistence: do not fail the API if DB is unavailable.
+    try {
+      await db.query(
+        'INSERT INTO requests (id, user_id, tier, prompt, response) VALUES ($1,$2,$3,$4,$5)',
+        [id, user_id, tier, prompt, reply]
+      );
+    } catch (err) {
+      console.error('db write failed:', err.message);
+    }
 
     res.json({ ok: true, id, reply });
   } catch (err) {
@@ -90,7 +104,7 @@ app.post('/v1/chat', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`listening on :${PORT}`);
 });
 
@@ -108,7 +122,6 @@ const shutdown = (signal) => {
     process.exit(1);
   }, 10000);
 };
-
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
